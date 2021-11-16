@@ -1,0 +1,231 @@
+<html>
+<head>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script src="/html/handsontable.full.min.js"></script>
+<link rel="stylesheet" href="/html/handsontable.full.min.css">
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+<style>
+* {
+  //height: 100%;
+}
+.disabled {
+  color: gray;
+}
+.info-bar, #grid {
+  cursor: default;
+}
+#loading-wrapper { 
+  position: fixed;
+  top: 0; 
+  left: 0; 
+  width: 100%; 
+  height: 100%; 
+  background: rgba(255,255,255,0.6);
+  display: flex; 
+  flex-direction: column; 
+  justify-content: center; 
+  align-items: center; 
+  transition: all 0.3s; 
+  z-index: 9999;
+} 
+</style>
+<script>
+var getHead = async () => {
+  const result = await $.get("/header/");
+  console.log(result);
+  result.map( (v,i) => {
+    $("#sortKey").append($("<option>").html(v).val(i));
+    $("#searchKey").append($("<option>").html(v).val(i));
+  });
+  //$("#sortKey option[value=1]").prop("selected",true);
+  $("#searchKey option[value=3]").prop("selected",true);
+  return result
+}
+var gettest = async () =>{
+  const result = await $.get("/test/");
+  return result
+}
+onload = async ()=>{
+  const head = await getHead();
+  console.log(head)
+  const data = await gettest();
+  console.log(data)
+  const handsontable = createHandsontable(head, data, $("#grid")[0] );
+  handsontable.render();
+  // ウィンドウリサイズ時のイベントハンドラ
+  const fitting_window = ()=>{
+    console.log("resize",document.documentElement.clientHeight,innerHeight)
+    handsontable.updateSettings({ height: innerHeight - 34 - 28})
+    handsontable.render();
+  };
+  addEventListener("resize",()=>{
+    fitting_window();
+  });
+  $("#loading-wrapper").toggle();
+  // フィルターボタンが押されたときのイベントハンドラ
+  const filter_exec = (p,q,and_flag) => {
+    $("#loading-wrapper").toggle();
+    // フィルター文字列
+    const filter = $("#filterString").val();
+    const key = $("#searchKey").val();
+    const sort = $("#sortKey").val()
+    const page_size = $("#maxPageRow").val();;
+    const page = p || 0;
+    if(and_flag) q.push([key,filter]);
+    const request = {
+      query: q || [[key,filter]],
+      sort: sort,
+      size: page_size,
+      page: page,
+    }
+    console.log(request,p);
+    // クエリーを投げる
+    $.post("/query/", request).then(res=>{
+      $("#loading-wrapper").toggle();
+      console.log(res)
+      const records = res.records;
+      const hitcount = res.count;
+      const page_count = Math.ceil(hitcount/page_size);
+      const current_page = (1+page) +"/"+ page_count;
+      $("#hitCount").text(hitcount);
+      $("#currentPage").text(current_page);
+      $("#next").off("click");
+      $("#prev").off("click");
+      if(page+1 >= Math.ceil(hitcount/page_size) ){
+        $("#next").addClass("disabled");
+      }else{
+        $("#next").removeClass("disabled");
+        $("#next").on("click",()=>{filter_exec(page+1,request.query)})
+      }
+      if(page-1 < 0){
+        $("#prev").addClass("disabled");
+      }else{
+        $("#prev").removeClass("disabled");
+        $("#prev").on("click",()=>{filter_exec(page-1,request.query)})
+      }
+      const pagination_elements = new Array(page_count).fill(null).map((v,i)=>{
+        const element = $("<span>");
+        element.html(i+1);
+        element.css("margin-left","10px");
+        if(i==page) {
+          element.css("color","gray");
+        }else{
+          element.on("click",()=>{filter_exec(i,request.query)});
+        }
+        return element
+      });
+      $("#pagination").html("");
+      pagination_elements.slice((page-5)<0?0:(page-5),page+5).forEach(element=>$("#pagination").append(element) );
+      handsontable.loadData(records);
+      fitting_window();
+      handsontable.render();
+      $("#andFilterExec").off("click");
+      $("#andFilterExec").on("click",()=>{
+        filter_exec(page,request.query,true);
+      });
+
+    });
+  };
+  $("#filterExec").on("click", ()=>{
+    filter_exec();
+  });
+  // リセットボタンが押されたときのイベントハンドラ
+  $("#filterReset").on("click",() => {
+    handsontable.loadData(data);
+    handsontable.render();
+  });
+  // csvが押されたときのイベントハンドラ
+  $("#downloadCsv").on("click",() => {
+    const data = handsontable.getData().concat();
+    data.unshift(table.getColHeader());
+    const blob = new Blob([data.join("\r\n")], {type: "text/csv;charset=utf-8"});
+    saveAs(blob,"cosmos.csv");
+  });
+  // Handsobtableのレンダーが発生した
+  Handsontable.hooks.add('afterRender',() => {
+    $(".handsontableInput").prop("disabled",true);
+  });
+  // セルが選択された
+  Handsontable.hooks.add('afterSelection',(row,col,row2,col2) => {
+    console.log(row,col,row2,col2);
+    handsontable.render();
+  });
+  // セル更新時のイベントハンドラ
+  Handsontable.hooks.add('afterChange',(val,act) => {
+    // val[i][0]+"行目の" + val[i][1]+"列目"
+    // val[i][2]+"　→　" + val[i][3]+"に変更しました"
+    // 行ごと取得したい時：table.getDataAtRow(val[i][0])
+    if(val===null) return false;
+  });
+  setInterval(()=>{
+    $("th.ht__highlight:nth-child(1)").parent().children().css("background-color","pink");
+  },10);
+  $("#filterExec")[0].click();
+}
+
+// ■□■─────────────────────────────────────────■□■
+// Handsontableを簡単に作成する。Handsontableのインスタンスを返す。
+// ■□■─────────────────────────────────────────■□■
+function createHandsontable(head,data,target){
+
+    table = new Handsontable(target, {
+      data: data,
+      wordWrap: false,
+      width: "100%",
+      height: null,
+      colHeaders:function(index){
+        var block = head[index]
+                  + '<div data-index='+index+' style="display: none;"></div>';
+        return block
+        },
+      rowHeaders: true,
+      columnSorting: true,
+      contextMenu: true,
+      manualColumnResize: true
+      });
+
+	return table;
+}
+</script>
+</head>
+<body>
+
+  <!-- ローディング画面 -->
+  <div id="loading-wrapper">
+    <div class="loader"></div>
+    <p>Loading...</p>
+  </div>
+
+  <div class="input-group" style="position:fixed">
+    <span class="input-group-prepend">
+      <button id="filterReset" type="button" class="btn btn-danger">PDF</button>
+      <button id="downloadCsv" type="button" class="btn btn-success">CSV</button>
+      <button id="andFilterExec" type="button" class="btn btn-warning">filter</button>
+      <select id="maxPageRow" class="form-control">
+        <option value=40>40行/page</option>
+        <option value=80>80行/page</option>
+        <option value=200>200行/page</option>
+      </select>
+      <select id="sortKey" class="form-control">
+        <option value=dummy>ソートキー</option>
+      </select>
+       <select id="searchKey" class="form-control">
+        <option value=dummy>検索キー</option>
+      </select>
+    </span>
+    <input id="filterString" type="text" class="form-control" placeholder="検索ワード">
+    <span class="input-group-apend">
+      <button id="filterExec" type="button" class="btn btn-primary">search</button>
+    </span>
+  </div>
+
+  <input type="dummy" class="form-control" placeholder="フィルター文字列" style="visibility:hidden">
+  <div id="info" class="info-bar">total:  <span id="hitCount">0</span> | <span id="currentPage">0/0</span> | 
+  <span id="prev" >prev</span> | <span id="pagination"></span> | <span id="next">next</span></div>
+
+  <div id="grid"></div>
+
+
+</body>
+</html>

@@ -1,0 +1,232 @@
+<html>
+<head>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script src="/html/handsontable.full.min.js"></script>
+<link rel="stylesheet" href="/html/handsontable.full.min.css">
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+<style>
+* {
+  //height: 100%;
+}
+.disabled {
+  color: gray;
+}
+.info-bar, #grid {
+  cursor: default;
+}
+#loading-wrapper { 
+  position: fixed;
+  top: 0; 
+  left: 0; 
+  width: 100%; 
+  height: 100%; 
+  background: rgba(255,255,255,0.6);
+  display: flex; 
+  flex-direction: column; 
+  justify-content: center; 
+  align-items: center; 
+  transition: all 0.3s; 
+  z-index: 9999;
+} 
+</style>
+<script>
+var getHead = async () => {
+  const result = await $.get("/header/");
+  return result
+}
+var gettest = async () =>{
+  const result = await $.get("/test/");
+  return result
+}
+onload = async ()=>{
+  let selection = {
+    row: null,
+    handsontable: null,
+    highlight: function(){
+      $("table.htCore > tbody > tr:nth-child("+(this.row+1)+") > td").css("background-color","orange");
+    },
+    setHighlight: function(row){
+      this.handsontable.render();
+      this.row = row ?? this.row;
+      if(this.row!==null) this.highlight();
+    },
+    setHandsontable: function(handsontable){
+      this.handsontable = handsontable;
+    },
+    deleteHighlight: function(){
+      this.row = null;
+      this.handsontable.render();
+    }
+  }
+  const head = await getHead();
+  console.log(head)
+  const data = await gettest();
+  console.log(data)
+  const handsontable = createHandsontable(head, data, $("#grid")[0] );
+  selection.setHandsontable(handsontable);
+  handsontable.render();
+  // ウィンドウリサイズ時のイベントハンドラ
+  const fitting_window = ()=>{
+    console.log("resize",document.documentElement.clientHeight,innerHeight)
+    handsontable.updateSettings({ height: innerHeight - 34 - 28})
+    handsontable.render();
+    selection.setHighlight();
+  };
+  addEventListener("resize",()=>{
+    fitting_window();
+  });
+  $("#loading-wrapper").toggle();
+  // フィルターボタンが押されたときのイベントハンドラ
+  const filter_exec = (p,q) => {
+    selection.deleteHighlight();
+    $("#loading-wrapper").toggle();
+    // フィルター文字列
+    const filter = $("#filterString").val();
+    const key = $("#searchKey").val();
+    const page_size = 40;
+    const page = p || 0;
+    const request = {
+      query: q || [[key,filter]],
+      sort: null,
+      size: page_size,
+      page: page,
+    }
+    console.log(request,p);
+    // クエリーを投げる
+    $.post("/query/", request).then(res=>{
+      $("#loading-wrapper").toggle();
+      console.log(res)
+      const records = res.records;
+      const hitcount = res.count;
+      const current_page = (1+page) +"/"+ Math.ceil(hitcount/page_size);
+      $("#hitCount").text(hitcount);
+      $("#currentPage").text(current_page);
+      $("#next").off("click");
+      $("#prev").off("click");
+      if(page+1 >= Math.ceil(hitcount/page_size) ){
+        $("#next").addClass("disabled");
+      }else{
+        $("#next").removeClass("disabled");
+        $("#next").on("click",()=>{filter_exec(page+1,request.query)})
+      }
+      if(page-1 < 0){
+        $("#prev").addClass("disabled");
+      }else{
+        $("#prev").removeClass("disabled");
+        $("#prev").on("click",()=>{filter_exec(page-1,request.query)})
+      }
+      handsontable.loadData(records);
+      fitting_window();
+      handsontable.render();
+    });
+  };
+  $("#filterExec").on("click", ()=>{filter_exec()});
+  // リセットボタンが押されたときのイベントハンドラ
+  $("#filterReset").on("click",() => {
+    handsontable.loadData(data);
+    handsontable.render();
+  });
+  // csvが押されたときのイベントハンドラ
+  $("#downloadCsv").on("click",() => {
+    const data = handsontable.getData().concat();
+    data.unshift(table.getColHeader());
+    const blob = new Blob([data.join("\r\n")], {type: "text/csv;charset=utf-8"});
+    saveAs(blob,"cosmos.csv");
+  });
+  // Handsobtableの準備ができた
+  Handsontable.hooks.add('afterRender',() => {
+    $(".handsontableInput").prop("disabled",true);
+  });
+  // セルが選択された
+  Handsontable.hooks.add('afterSelection',(row,col,row2,col2) => {
+    selection.setHighlight(row2);
+  });
+  // セル更新時のイベントハンドラ
+  Handsontable.hooks.add('afterChange',(val,act) => {
+    // val[i][0]+"行目の" + val[i][1]+"列目"
+    // val[i][2]+"　→　" + val[i][3]+"に変更しました"
+    // 行ごと取得したい時：table.getDataAtRow(val[i][0])
+    if(val===null) return false;
+  });
+  $("#filterExec")[0].click();
+}
+
+// ■□■─────────────────────────────────────────■□■
+// Handsontableを簡単に作成する。Handsontableのインスタンスを返す。
+// ■□■─────────────────────────────────────────■□■
+function createHandsontable(head,data,target){
+
+    table = new Handsontable(target, {
+      data: data,
+      wordWrap: false,
+      width: "100%",
+      height: null,
+      colHeaders:function(index){
+        var block = head[index]
+                  + '<div data-index='+index+' style="display: none;"></div>';
+        return block
+        },
+      rowHeaders: true,
+      columnSorting: true,
+      contextMenu: true,
+      manualColumnResize: true
+      });
+
+	return table;
+}
+</script>
+</head>
+<body>
+
+  <!-- ローディング画面 -->
+  <div id="loading-wrapper">
+    <div class="loader"></div>
+    <p>Loading...</p>
+  </div>
+<!--
+  <div class="input-group" style="position:fixed">
+    <span class="input-group-prepend">
+      <button id="filterReset" type="button" class="btn btn-danger">PDF</button>
+      <button id="downloadCsv" type="button" class="btn btn-success">CSV</button>
+      <button id="filterExec" type="button" class="btn btn-warning">filter</button>
+      <input id="searchKey" type="hidden" class="form-control" placeholder="ソートキー名">
+      <input id="searchKey" type="hidden" class="form-control" placeholder="検索キー名" value=3>
+      <select id="maxPageRow" class="form-control">
+        <option value=40>40行/page</option>
+        <option value=80>80行/page</option>
+        <option value=200>200行/page</option>
+      </select>
+      <select id="sortKey" class="form-control">
+        <option value=dummy>ソートキー</option>
+      </select>
+       <select id="searchKey" class="form-control">
+        <option value=dummy>検索キー</option>
+      </select>
+    </span>
+    <input id="filterString" type="text" class="form-control" placeholder="検索ワード">
+    <span class="input-group-apend">
+      <button id="filterExec" type="button" class="btn btn-primary">search</button>
+    </span>
+  </div>
+-->
+
+  <div class="input-group" style="position:fixed">
+    <span class="input-group-prepend">
+      <button id="filterReset" type="button" class="btn btn-danger">Reset</button>
+      <button id="downloadCsv" type="button" class="btn btn-success">CSV</button>
+      <button id="filterExec" type="button" class="btn btn-primary">Filter</button>
+      <input id="searchKey" type="number" class="form-control" placeholder="キー名" value=3>
+    </span>
+    <input id="filterString" type="text" class="form-control" placeholder="検索ワード">
+  </div>
+
+  <input type="dummy" class="form-control" placeholder="フィルター文字列" style="visibility:hidden">
+  <div id="info" class="info-bar">hit count = <span id="hitCount">0</span> | <span id="currentPage">0/0</span> | 
+  <span id="prev" >prev</span> | <span id="next">next</span></div>
+
+  <div id="grid"></div>
+
+
+</body>
+</html>
