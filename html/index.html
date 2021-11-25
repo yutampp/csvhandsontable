@@ -1,10 +1,12 @@
-<html>
+<html lang="ja-jp">
 <head>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
 <script src="/html/handsontable.full.min.js"></script>
 <link rel="stylesheet" href="/html/handsontable.full.min.css">
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
 <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+<script src="/html/FileSaver2.0.2.js"></script>
 <style>
 * {
   //height: 100%;
@@ -39,7 +41,7 @@ var getHead = async () => {
     $("#searchKey").append($("<option>").html(v).val(i));
   });
   //$("#sortKey option[value=1]").prop("selected",true);
-  $("#searchKey option[value=3]").prop("selected",true);
+  $("#searchKey option[value=2]").prop("selected",true);
   return result
 }
 var gettest = async () =>{
@@ -92,17 +94,21 @@ onload = async ()=>{
       $("#currentPage").text(current_page);
       $("#next").off("click");
       $("#prev").off("click");
+      $("#first").off("click");
+      $("#last").off("click");
       if(page+1 >= Math.ceil(hitcount/page_size) ){
         $("#next").addClass("disabled");
       }else{
         $("#next").removeClass("disabled");
         $("#next").on("click",()=>{filter_exec(page+1,request.query)})
+        $("#last").on("click",()=>{filter_exec(page_count-1,request.query)})
       }
       if(page-1 < 0){
         $("#prev").addClass("disabled");
       }else{
         $("#prev").removeClass("disabled");
         $("#prev").on("click",()=>{filter_exec(page-1,request.query)})
+        $("#first").on("click",()=>{filter_exec(0,request.query)})
       }
       const pagination_elements = new Array(page_count).fill(null).map((v,i)=>{
         const element = $("<span>");
@@ -138,7 +144,7 @@ onload = async ()=>{
   // csvが押されたときのイベントハンドラ
   $("#downloadCsv").on("click",() => {
     const data = handsontable.getData().concat();
-    data.unshift(table.getColHeader());
+    data.unshift(head.map(v=>'"'+v+'"'));
     const blob = new Blob([data.join("\r\n")], {type: "text/csv;charset=utf-8"});
     saveAs(blob,"cosmos.csv");
   });
@@ -162,6 +168,7 @@ onload = async ()=>{
     $("th.ht__highlight:nth-child(1)").parent().children().css("background-color","pink");
   },10);
   $("#filterExec")[0].click();
+  $('[data-toggle="tooltip"]').tooltip();
 }
 
 // ■□■─────────────────────────────────────────■□■
@@ -169,7 +176,7 @@ onload = async ()=>{
 // ■□■─────────────────────────────────────────■□■
 function createHandsontable(head,data,target){
 
-    table = new Handsontable(target, {
+    var table = new Handsontable(target, {
       data: data,
       wordWrap: false,
       width: "100%",
@@ -197,32 +204,45 @@ function createHandsontable(head,data,target){
     <p>Loading...</p>
   </div>
 
-  <div class="input-group" style="position:fixed">
+  <div class="input-group">
     <span class="input-group-prepend">
       <button id="filterReset" type="button" class="btn btn-danger">PDF</button>
       <button id="downloadCsv" type="button" class="btn btn-success">CSV</button>
-      <button id="andFilterExec" type="button" class="btn btn-warning">filter</button>
-      <select id="maxPageRow" class="form-control">
+      <button id="andFilterExec" type="button" class="btn btn-warning" data-toggle="tooltip" data-placement="bottom" title="絞り込み検索">
+        filter
+      </button>
+    </span>
+      <select id="maxPageRow" class="form-control" data-toggle="tooltip" data-placement="bottom" title="1ページあたりの表示件数">
         <option value=40>40行/page</option>
         <option value=80>80行/page</option>
         <option value=200>200行/page</option>
       </select>
-      <select id="sortKey" class="form-control">
+      <select id="sortKey" class="form-control" data-toggle="tooltip" data-placement="bottom" title="検索結果の並び順を決める列">
         <option value=dummy>ソートキー</option>
       </select>
-       <select id="searchKey" class="form-control">
+      <select id="searchKey" class="form-control" data-toggle="tooltip" data-placement="bottom" title="検索する列を指定">
         <option value=dummy>検索キー</option>
       </select>
-    </span>
-    <input id="filterString" type="text" class="form-control" placeholder="検索ワード">
-    <span class="input-group-apend">
-      <button id="filterExec" type="button" class="btn btn-primary">search</button>
+    <input id="filterString" type="text" class="form-control" placeholder="検索ワード" data-toggle="tooltip" data-placement="bottom" title="検索キーワードを入力">
+    <span class="input-group-append">
+      <button id="filterExec" type="button" class="btn btn-primary" data-toggle="tooltip" data-placement="bottom" title="検索">search</button>
     </span>
   </div>
 
-  <input type="dummy" class="form-control" placeholder="フィルター文字列" style="visibility:hidden">
-  <div id="info" class="info-bar">total:  <span id="hitCount">0</span> | <span id="currentPage">0/0</span> | 
-  <span id="prev" >prev</span> | <span id="pagination"></span> | <span id="next">next</span></div>
+  <input type="dummy" class="form-control" placeholder="フィルター文字列" style="display:none">
+  <div id="info" class="info-bar">
+    total:  <span id="hitCount">0</span>
+    |
+    <span id="currentPage">0/0</span>
+    |
+    <span id="first" >first</span>
+    <span id="prev" >prev</span>
+    |
+    <span id="pagination"></span>
+    |
+    <span id="next">next</span>
+    <span id="last">last</span>
+  </div>
 
   <div id="grid"></div>
 
